@@ -1,0 +1,90 @@
+.PHONY: all clean
+
+BUILD_SDT    ?= 0
+BUILD_PIC    ?= 0
+BUILD_TYPE   ?= DEBUG
+build_DIR    ?= ./build
+
+CC        = gcc
+LD        = ld
+
+ifneq ($(V),1)
+Q ?= @
+endif
+
+INCLUDES += -Isrc/
+CFLAGS_  += -Wall -Wextra -Wno-unused-parameter -Wshadow -D_GNU_SOURCE -D__STDC_FORMAT_MACROS
+CFLAGS_  += -fno-builtin-malloc -fno-builtin-calloc -fno-builtin-realloc -fno-builtin-free
+CFLAGS_  += $(INCLUDES)
+#CFLAGS_  += -O3 -DNDEBUG #-flto
+#CFLAGS_ += #-fprofile-arcs -ftest-coverage
+# C-only
+CFLAGS    = $(CFLAGS_) -std=c11
+# linking-related
+LIBS      =  -lpthread -lrt
+LDFLAGS   =
+
+ifeq (DEBUG,$(BUILD_TYPE))
+CFLAGS_   += -O0 -ggdb -U_FORTIFY_SOURCE
+else ifeq (NORMAL,$(BUILD_TYPE))
+CFLAGS_   += -O2 -ggdb
+else ifeq (PERFORMANCE,$(BUILD_TYPE))
+CFLAGS_   += -O3 -DNDEBUG#-flto
+else
+$(error "Unknown BUILD_TYPE: --->$(BUILD_TYPE)<---")
+endif
+
+ifeq (1, $(BUILD_SDT))
+	CFLAGS_   += -DTRT_CONFIG_SDT
+	LDFLAGS   += -Wl,--build-id
+endif
+
+ifeq (1, $(BUILD_PIC))
+      CFLAGS_ += -fPIC
+endif
+
+
+# transform source files by changing their suffix
+transform_SRC = $(patsubst src/%.c,  $(build_DIR)/$(2), $(filter %.c,  $(1))) \
+                $(patsubst src/%.S,  $(build_DIR)/$(2), $(filter %.S,  $(1)))
+
+rrbench_SRC = \
+         src/net_helpers.c          \
+         src/rrbench.c              \
+
+rrbench_OBJ = $(call transform_SRC,$(rrbench_SRC),%.o)
+rrbench_DEP = $(call transform_SRC,$(rrbench_SRC),%.d)
+
+rrbench_BIN = $(build_DIR)/rrbench
+
+all_OBJ += $(rrbench_OBJ)
+all_DEP += $(rrbench_DEP)
+
+all: $(rrbench_BIN)
+
+# create all needed directories under build/
+$(build_DIR)/.marker:
+	$(Q) [ -d $(build_DIR) ] || mkdir -p $(build_DIR)
+	@echo "  TOUCH $@"
+	$(Q) touch $@
+
+$(rrbench_BIN): $(rrbench_OBJ)
+	@echo "     LD $@"
+	$(Q) $(CC) $(LDFLAGS) $^ $(LIBS) -o $@
+
+$(build_DIR)/%.o: src/%.c $(build_DIR)/.marker
+	@echo "    CC $@"
+	$(Q) $(CC) $(CFLAGS) -c  $< -o $@
+	$(Q) $(CC) $(CFLAGS) -MM $< -MT $@ -MF $(build_DIR)/$*.d
+
+$(build_DIR)/%.o: src/%.S $(build_DIR)/.marker
+	@echo "     AS $@"
+	$(Q) $(CC) $(CFLAGS) -c  $< -o $@
+	$(Q) $(CC) $(CFLAGS) -MM $< -MT $@ -MF $(build_DIR)/$*.d
+
+
+-include $(all_DEP)
+
+clean:
+	@echo "  CLEAN $(build_DIR)"
+	$(Q) rm -rf --interactive=once $(build_DIR)
