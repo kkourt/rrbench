@@ -8,38 +8,13 @@
 #include <inttypes.h>
 #include <unistd.h>
 
+#include "rrbench.h"
 #include "net_helpers.h"
 #include "tsc.h"
 #include "misc.h"
 
 #define RR_MAGIC 0xfae1fae2
 #define RR_MAX_SIZE 1024
-
-enum rr_type {
-    RR_TYPE_HELO  = 0,
-    RR_TYPE_OHHI  = 1,
-    RR_TYPE_PING  = 10,
-    RR_TYPE_PONG  = 11,
-};
-
-struct  rr_hdr {
-    uint32_t magic;
-    uint32_t rrid;
-    uint8_t  type;
-    union {
-        struct {
-            uint16_t req_size;
-            uint16_t res_size;
-        } helo;
-        struct {
-            uint16_t dlen;
-        } ping;
-        struct {
-            uint16_t dlen;
-        } pong;
-    };
-    char      data[];
-} __attribute__((packed));
 
 static void
 rr_init_helo(struct rr_hdr *hdr, uint16_t req_size, uint16_t res_size) {
@@ -136,7 +111,7 @@ main_srv(const char *pname, int argc, char *argv[]) {
     int lfd;
 
     if (argc < 2) {
-        printf("Usage: %s srv <server address>n", pname);
+        printf("Usage: %s srv <server address>\nn", pname);
         exit(1);
     }
 
@@ -293,10 +268,11 @@ cli_ping_pong(struct cli_conf *conf, int fd) {
 			idx++;
 		}
 		// try to receive as many as possible
+		bool recv_one = false;
 		while (in_flight > 0) {
 
 			// do not block if there are more messages we can send
-			int noblock = nmessages < sent ? MSG_DONTWAIT : 0;
+			int noblock = ( (nmessages > sent) && recv_one) ? MSG_DONTWAIT : 0;
 
 			int ret = recv(fd, res, res_buff_size, noblock);
 			if (ret == -1) {
@@ -309,6 +285,7 @@ cli_ping_pong(struct cli_conf *conf, int fd) {
             if (res->magic != RR_MAGIC || res->type != RR_TYPE_PONG || res->pong.dlen != conf->res_size)
                 die("invalid protocol");
 
+			recv_one = true;
 			received++;
 			sum2 += res->rrid;
 			ticks[req->rrid] = get_ticks() - ticks[req->rrid];
