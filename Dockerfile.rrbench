@@ -1,0 +1,17 @@
+# container for rrbench
+FROM debian:sid
+
+RUN \
+  apt -y update                                   \
+  && apt -y dist-upgrade                          \
+  && apt -y install build-essential make gcc      \
+  && exit 0
+
+RUN mkdir rrbench
+COPY src              rrbench/src
+COPY Makefile         rrbench/
+COPY Makefile.rrbench rrbench/
+RUN ls rrbench/
+RUN make -C rrbench
+
+CMD ["sleep", "inf"]

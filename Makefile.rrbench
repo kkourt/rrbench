@@ -3,7 +3,7 @@
 BUILD_SDT    ?= 0
 BUILD_PIC    ?= 0
 BUILD_TYPE   ?= DEBUG
-build_DIR    ?= ./build
+build_DIR    ?= $(CURDIR)/build
 
 CC        = gcc
 LD        = ld
@@ -84,6 +84,11 @@ $(build_DIR)/%.o: src/%.S $(build_DIR)/.marker
 
 
 -include $(all_DEP)
+
+docker-image:
+	docker build . -f Dockerfile.rrbench -t kkourt/rrbench
+	docker push kkourt/rrbench
+
 
 clean:
 	@echo "  CLEAN $(build_DIR)"
