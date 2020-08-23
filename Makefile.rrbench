@@ -8,6 +8,13 @@ build_DIR    ?= $(CURDIR)/build
 CC        = gcc
 LD        = ld
 
+BPFCC          = clang
+BPFCFLAGS      = -O2 -nostdinc -Wall -Wextra -Wshadow -target bpf -emit-llvm -g
+BPFCFLAGS     += -I$(GOPATH)/src/github.com/cilium/cilium/bpf/include -I$(GOPATH)/src/github.com/cilium/cilium/bpf/
+BPFLLC         = llc
+BPFLLCFLAGS    = -march=bpf -mcpu=probe -mattr=dwarfris
+BPFBUILDDIR    = $(build_DIR)/bpf
+
 ifneq ($(V),1)
 Q ?= @
 endif
@@ -52,19 +59,24 @@ rrbench_SRC = \
          src/net_helpers.c          \
          src/rrbench.c              \
 
+bpf_SRC = \
+	 src/bpf/tc.c
+
 rrbench_OBJ = $(call transform_SRC,$(rrbench_SRC),%.o)
 rrbench_DEP = $(call transform_SRC,$(rrbench_SRC),%.d)
+
+bpf_OBJ = $(call transform_SRC,$(bpf_SRC),%.o)
 
 rrbench_BIN = $(build_DIR)/rrbench
 
 all_OBJ += $(rrbench_OBJ)
 all_DEP += $(rrbench_DEP)
 
-all: $(rrbench_BIN)
+all: $(rrbench_BIN) $(bpf_OBJ)
 
 # create all needed directories under build/
 $(build_DIR)/.marker:
-	$(Q) [ -d $(build_DIR) ] || mkdir -p $(build_DIR)
+	$(Q) [ -d $(build_DIR)/bpf ] || mkdir -p $(build_DIR)/bpf
 	@echo "  TOUCH $@"
 	$(Q) touch $@
 
@@ -72,8 +84,18 @@ $(rrbench_BIN): $(rrbench_OBJ)
 	@echo "     LD $@"
 	$(Q) $(CC) $(LDFLAGS) $^ $(LIBS) -o $@
 
-$(build_DIR)/%.o: src/%.c $(build_DIR)/.marker
-	@echo "    CC $@"
+$(BPFBUILDDIR)/%.ll: src/bpf/%.c
+	@echo "   BPFC $@"
+	$(Q) $(BPFCC) $(BPFCFLAGS) -c  $< -o $@
+	$(Q) $(BPFCC) $(BPFCFLAGS) -MM $< -MT $@ -MF $*.d
+
+$(BPFBUILDDIR)/%.o: $(BPFBUILDDIR)/%.ll
+	@echo "    LLC $@"
+	$(Q) $(BPFLLC) $(BPFLLCFLAGS) -filetype=obj  $< -o $@
+
+
+$(all_OBJ): $(build_DIR)/%.o: src/%.c $(build_DIR)/.marker
+	@echo "     CC $@"
 	$(Q) $(CC) $(CFLAGS) -c  $< -o $@
 	$(Q) $(CC) $(CFLAGS) -MM $< -MT $@ -MF $(build_DIR)/$*.d
 
@@ -88,7 +110,6 @@ $(build_DIR)/%.o: src/%.S $(build_DIR)/.marker
 docker-image:
 	docker build . -f Dockerfile.rrbench -t kkourt/rrbench
 	docker push kkourt/rrbench
-
 
 clean:
 	@echo "  CLEAN $(build_DIR)"
