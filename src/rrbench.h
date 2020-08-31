@@ -6,7 +6,15 @@
 #ifndef RRBENCH_H__
 #define RRBENCH_H__
 
-#include <inttypes.h>
+typedef unsigned long  u64;
+typedef unsigned int   u32;
+typedef unsigned short u16;
+typedef unsigned char  u8;
+
+_Static_assert(sizeof(u64) == 8, "Invalid u64 size");
+_Static_assert(sizeof(u32) == 4, "Invalid u32 size");
+_Static_assert(sizeof(u16) == 2, "Invalid u16 size");
+_Static_assert(sizeof(u8)  == 1, "Invalid u8 size");
 
 enum rr_type {
     RR_TYPE_HELO  = 0,
@@ -16,19 +24,19 @@ enum rr_type {
 };
 
 struct  rr_hdr {
-    uint32_t magic;
-    uint32_t rrid;
-    uint8_t  type;
+    u32 magic;
+    u32 rrid;
+    u8  type;
     union {
         struct {
-            uint16_t req_size;
-            uint16_t res_size;
+            u16 req_size;
+            u16 res_size;
         } helo;
         struct {
-            uint16_t dlen;
+            u16 dlen;
         } ping;
         struct {
-            uint16_t dlen;
+            u16 dlen;
         } pong;
     };
     char      data[];

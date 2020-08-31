@@ -10,7 +10,7 @@ LD        = ld
 
 BPFCC          = clang
 BPFCFLAGS      = -O2 -nostdinc -Wall -Wextra -Wshadow -target bpf -emit-llvm -g
-BPFCFLAGS     += -I$(GOPATH)/src/github.com/cilium/cilium/bpf/include -I$(GOPATH)/src/github.com/cilium/cilium/bpf/
+BPFCFLAGS     += -I$(GOPATH)/src/github.com/cilium/cilium/bpf/include -I$(GOPATH)/src/github.com/cilium/cilium/bpf/ -I./src/
 BPFLLC         = llc
 BPFLLCFLAGS    = -march=bpf -mcpu=probe -mattr=dwarfris
 BPFBUILDDIR    = $(build_DIR)/bpf
@@ -103,7 +103,6 @@ $(build_DIR)/%.o: src/%.S $(build_DIR)/.marker
 	@echo "     AS $@"
 	$(Q) $(CC) $(CFLAGS) -c  $< -o $@
 	$(Q) $(CC) $(CFLAGS) -MM $< -MT $@ -MF $(build_DIR)/$*.d
-
 
 -include $(all_DEP)
 
