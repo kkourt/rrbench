@@ -86,7 +86,26 @@ trace_netif_receive_skb(struct netif_receive_skb_args *args)
     // unsigned short name_len = args->name__ >> 16;
     bpf_probe_read_str(devname, 16, (char *)args + name_off);
 
-    bpf_trace_printk("len=%u name_len=%lu\\n", args->len, args->name__);
+    struct sk_buff *skb = args->skbaddr;
+    bpf_probe_read(&iphdr_byte0, 1, ip);
+    if ((iphdr_byte0>>4) == 4) {
+        u8 v4_prot;
+        bpf_probe_read(&v4_prot, 1, &ip->protocol);
+        if (v4_prot == 0x06) { // TCP
+            struct tcphdr *tcp_ = skb_to_tcphdr(skb);
+            struct tcphdr tcp;
+            bpf_probe_read(&tcp, sizeof(tcp), tcp_);
+            u16 port = bpf_htons(4053);
+            bpf_trace_printk("port=%u tcp.source=%u tcp.dest=%u\\n", port, tcp.source, tcp.dest);
+            if (tcp.source != port && tcp.dest != port) {
+                return 0;
+            }
+            struct rr_hdr rr_hdr;
+            bpf_probe_read(&rr_hdr, sizeof(rr_hdr), (char *)tcp_ + (tcp.doff<<2));
+            bpf_trace_printk("len=%u name=%s magic=0x%lx\\n", args->len, devname, rr_hdr.magic);
+        }
+    }
+
     return 0;
 }
 */
@@ -108,12 +127,9 @@ static inline struct iphdr *skb_to_iphdr(const struct sk_buff *skb)
 }
 
 
-TRACEPOINT_PROBE(net, netif_receive_skb) {
-    char devname[16];
-    TP_DATA_LOC_READ_CONST(devname, name, 16);
-    struct sk_buff *skb = args->skbaddr;
-    bpf_trace_printk("skb->len=%lu skb->data_len=%lu diff=%lu\\n", skb->len, skb->data_len, skb->len - skb->data_len);
 
+static inline void
+rr_check(short prefix, struct sk_buff *skb, char *devname, bool verbose) {
     u8 iphdr_byte0;
     struct iphdr *ip = skb_to_iphdr(skb);
     bpf_probe_read(&iphdr_byte0, 1, ip);
@@ -124,14 +140,55 @@ TRACEPOINT_PROBE(net, netif_receive_skb) {
             struct tcphdr *tcp_ = skb_to_tcphdr(skb);
             struct tcphdr tcp;
             bpf_probe_read(&tcp, sizeof(tcp), tcp_);
-            struct rr_hdr rr_hdr;
+            u16 port = bpf_htons(5554);
+            if (tcp.source != port && tcp.dest != port) {
+                return;
+            }
+            /*
+            if (verbose && tcp.dest == port) {
+                bpf_trace_printk("%u: RR: TCP cli->srv skb->len=%u skb->data_len=%u\\n", prefix, skb->len, skb->data_len);
+            }
+            */
+
+            struct rr_hdr rr_hdr = {0};
             bpf_probe_read(&rr_hdr, sizeof(rr_hdr), (char *)tcp_ + (tcp.doff<<2));
-            bpf_trace_printk("len=%u name=%s magic=0x%lx\\n", args->len, devname, rr_hdr.magic);
+            if (rr_hdr.magic == 0xfae1fae2) {
+                if (rr_hdr.type ==  10) {
+                    bpf_trace_printk("%u: RR: PING name=%s rrid=%u\\n", prefix, devname, rr_hdr.rrid);
+                } else if (rr_hdr.type == 11) {
+                    bpf_trace_printk("%u: RR: PONG name=%s rrid=%u\\n", prefix, devname, rr_hdr.rrid);
+                }
+            }
         }
     }
 
+}
+
+TRACEPOINT_PROBE(net, netif_receive_skb) {
+    char devname[16];
+    TP_DATA_LOC_READ_CONST(devname, name, 16);
+    struct sk_buff *skb = args->skbaddr;
+    rr_check(100, skb, devname, false);
+
     return 0;
 }
+
+TRACEPOINT_PROBE(net, net_dev_xmit) {
+    char devname[16];
+    TP_DATA_LOC_READ_CONST(devname, name, 16);
+    struct sk_buff *skb = args->skbaddr;
+    rr_check(2, skb, devname, false);
+    return 0;
+}
+
+TRACEPOINT_PROBE(net, net_dev_queue) {
+    char devname[16];
+    TP_DATA_LOC_READ_CONST(devname, name, 16);
+    struct sk_buff *skb = args->skbaddr;
+    rr_check(1, skb, devname, true);
+    return 0;
+}
+
 """
 
 class NetDevEv(ctypes.Structure):
